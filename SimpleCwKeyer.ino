@@ -1,6 +1,6 @@
 // Simple CW Keyer - A simple Iambic Morse Keyer for Arduino
 // January 19, 2023
-// Version 0.01a 
+// Version 0.02a 
 //
 // A basic iambic mode keyer that has adjustable speed
 // and can be configured to operate in iambic mode a or b.
@@ -15,7 +15,8 @@
 //  
 // See the file called LICENSE for details.
 /////////////////////////////////////////////////////////////////////////////////////////
-
+#include "Morse.h"
+//#include "Config.h"
 //
 // Digital Pins
 //
@@ -23,7 +24,7 @@ int LEFT_PADDLE_Pin = 9;    // Left paddle input
 int RIGHT_PADDLE_Pin = 10;  // Right paddle input
 int PIEZO_SPKR_Pin = 11;    // Piezo Speaker
 int ledPin = 13;
-int cmdPin = 17;            // Command pushbutton input
+int cmdPin = 4;            // Command pushbutton input
 int TX_SWITCH_Pin = 5;      // Radio T/R Switch - HIGH is Key down (TX)), LOW is key up (RX). 
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -189,12 +190,17 @@ void loop() {
       delay(2);
     } while (debounce--);
 
+    audio_send_morse_msg (ditTime);
+
+    /*
+
     keyerControl ^= IAMBIC_B;       // Toggle Iambic B bit
     if (keyerControl & IAMBIC_B) {  // Flash once for A, twice for B
       flashLED(2);
     } else {
       flashLED(1);
     }
+    */
   }
 }
 
