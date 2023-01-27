@@ -1,6 +1,6 @@
 // Simple CW Keyer - A simple Iambic Morse Keyer for Arduino
 // January 19, 2023
-// Version 0.02a 
+// Version 0.03a 
 //
 // A basic iambic mode keyer that has adjustable speed
 // and can be configured to operate in iambic mode a or b.
@@ -50,6 +50,7 @@ enum KSTYPE {
   KEYED_PREP,
   KEYED,
   INTER_ELEMENT,
+  PRE_IDLE,
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -64,6 +65,10 @@ uint8_t DIT_PADDLE;
 uint8_t DAH_PADDLE;
 KSTYPE keyerState = IDLE;  // State global variable
 
+// We use this variable to encode Morse elements (DIT = 0, DAH =1) to encode the current character send via the paddles
+// The encoding is to left pad the character with 1's. A zero start bit is to the left of the first encoded element.
+// We start with B11111110 and shift in a 0 or 1 according the last element received.
+uint8_t current_morse_character = B11111110;
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -92,6 +97,8 @@ void setup() {
   // Setup for Righthanded paddle by default
   DIT_PADDLE = LEFT_PADDLE_Pin;   // Dits on right hand thumb
   DAH_PADDLE = RIGHT_PADDLE_Pin;  // Dahs on right hand index finger
+  
+  // Serial.begin(9600); // for Debug
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -114,6 +121,7 @@ void loop() {
       // Wait for direct or latched paddle press
       if ((digitalRead(DIT_PADDLE) == LOW) || (digitalRead(DAH_PADDLE) == LOW) || (keyerControl & 0x03)) {
         update_PaddleLatch();
+        current_morse_character = B11111110; // Initialization
         keyerState = CHK_DIT;
       }
       break;
@@ -123,6 +131,7 @@ void loop() {
       if (keyerControl & DIT_L) {
         keyerControl |= DIT_PROC;
         ktimer = ditTime;
+        current_morse_character = (current_morse_character << 1); // Shift a DIT (0) into the bit #0 position.
         keyerState = KEYED_PREP;
       } else {
         keyerState = CHK_DAH;
@@ -133,9 +142,12 @@ void loop() {
       // See if dah paddle was pressed
       if (keyerControl & DAH_L) {
         ktimer = ditTime * 3;
+        current_morse_character = ((current_morse_character << 1) | 1 ); // Shift left one position and make bit #0 a DAH (1)
         keyerState = KEYED_PREP;
       } else {
-        keyerState = IDLE;
+        // keyerState = IDLE;
+        ktimer = millis() + (ditTime * 2); // Character space, is ditTime x 2 because already have a trailing intercharacter space
+        keyerState = PRE_IDLE;            // go idle
       }
       break;
 
@@ -170,10 +182,27 @@ void loop() {
           keyerState = CHK_DAH;                 // dit done, check for dah
         } else {
           keyerControl &= ~(DAH_L);  // clear dah latch
-          keyerState = IDLE;         // go idle
+          ktimer = millis() + (ditTime * 2); // Character space, is ditTime x 2 because already have a trailing intercharacter space
+          keyerState = PRE_IDLE;         // go idle
         }
       }
       break;
+
+    case PRE_IDLE: // Wait for an intercharacter space
+
+      // Check for direct or latched paddle press
+      if ((digitalRead(DIT_PADDLE) == LOW) || (digitalRead(DAH_PADDLE) == LOW) || (keyerControl & 0x03)) {
+        update_PaddleLatch();
+        keyerState = CHK_DIT;
+      } 
+      else { // Check for intercharacter space
+        if (millis() > ktimer) {
+          // Serial.println(current_morse_character);
+          keyerState = IDLE;         // go idle        
+        }
+      }
+
+      break;      
   }
 
   // Simple Iambic mode select
@@ -190,17 +219,11 @@ void loop() {
       delay(2);
     } while (debounce--);
 
+
+
     audio_send_morse_msg (ditTime);
 
-    /*
-
-    keyerControl ^= IAMBIC_B;       // Toggle Iambic B bit
-    if (keyerControl & IAMBIC_B) {  // Flash once for A, twice for B
-      flashLED(2);
-    } else {
-      flashLED(1);
-    }
-    */
+    
   }
 }
 

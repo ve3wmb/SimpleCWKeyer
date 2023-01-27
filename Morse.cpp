@@ -7,29 +7,30 @@
 
   The remainder of this code is :
 
-   Copyright (C) 2018-2019 Michael Babineau <mbabineau.ve3wmb@gmail.com>
+   Copyright (C) 2023 Michael Babineau <mbabineau.ve3wmb@gmail.com>
 
    This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
+   it under the terms of the GNU Lesser Public License as published by
+   the Free Software Foundation, either version 2 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
+   GNU Lesser Public License for more details.
 
-   You should have received a copy of the GNU General Public License
+   You should have received a copy of the GNU Lesser Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "Morse.h"
 #define CMD_MODE_MESSAGE "R "
+#define CMD_MODE_EXIT_MSG "* K"
 #define OK_MSG "OK"
 #define PWR_ON_MSG "KEYER OK "
-#define WIRE_MSG "BEST BENT WIRES 123456789 * K # ?"
+
 #define SPACE B11101111        // Special encoding for interword Space character
 
-const char msg[] = WIRE_MSG; //
+const char msg[] = CMD_MODE_EXIT_MSG; //
 
 
 uint8_t morse_char_code(char c) {
