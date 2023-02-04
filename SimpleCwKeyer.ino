@@ -1,6 +1,6 @@
 // Simple CW Keyer - A simple Iambic Morse Keyer for Arduino
 // January 19, 2023
-// Version 0.03a 
+// Version 0.04a 
 //
 // A basic iambic mode keyer that has adjustable speed
 // and can be configured to operate in iambic mode a or b.
@@ -15,8 +15,11 @@
 //  
 // See the file called LICENSE for details.
 /////////////////////////////////////////////////////////////////////////////////////////
+#include "KeyerConfig.h"
+#include "KeyerBoardConfig.h"  // Configurations for diferent Arduino Boards
 #include "Morse.h"
-//#include "Config.h"
+#include "KeyerCmd.h"
+
 //
 // Digital Pins
 //
@@ -36,7 +39,9 @@ int TX_SWITCH_Pin = 5;      // Radio T/R Switch - HIGH is Key down (TX)), LOW is
 #define DIT_PROC 0x04  // Dit is being processed (Binary 0000 0100)
 #define IAMBIC_B 0x10  // 0x00 for Iambic A, 0x01 for Iambic B (Binary 0001 0000)
 
-#define SIDETONE_FREQ_HZ 600  // Frequency for the keyer sidetone 
+#define SIDETONE_FREQ_HZ 600  // Frequency for the keyer sidetone
+#define COMMAND_INPUT_TIMEOUT 5000 // 
+#define COMMAND_TUNE_TIMEOUT 20000 // 20 second timeout on TUNE command 
 
 
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -53,22 +58,50 @@ enum KSTYPE {
   PRE_IDLE,
 };
 
+enum KEYER_CMD_MODE_TYPE {
+  CMD_IDLE,
+  CMD_TUNE,
+  CMD_SPEED_SET,
+  CMD_SPEED_SET_D1,
+  CMD_SPEED_SET_D2,
+  
+};
+
 ////////////////////////////////////////////////////////////////////////////////////////
 //
 //  Global Variables
 //
 uint32_t ditTime;      // Number of milliseconds per dit
 uint8_t keyerControl;  // 0x1 Dit latch, 0x2 Dah latch, 0x04 Dit being processed, 0x10 0 for Iambic A or 1 for B
+KSTYPE keyerState = IDLE;  // State global variable
+ 
+
 
 // We declare these so that DIT and DAH paddles can be swapped fpr both left and right users. Convention is DIT on thumb.
-uint8_t DIT_PADDLE;
-uint8_t DAH_PADDLE;
-KSTYPE keyerState = IDLE;  // State global variable
+uint8_t dit_paddle;
+uint8_t dah_paddle;
 
 // We use this variable to encode Morse elements (DIT = 0, DAH =1) to encode the current character send via the paddles
 // The encoding is to left pad the character with 1's. A zero start bit is to the left of the first encoded element.
 // We start with B11111110 and shift in a 0 or 1 according the last element received.
 uint8_t current_morse_character = B11111110;
+
+// Keyer response messages sent as Morse Audio feedback
+const char pwr_on_msg[] = PWR_ON_MESSAGE;
+const char cmd_mode_entry_msg[] = CMD_MODE_ENTRY_MESSAGE;
+const char cmd_mode_exit_msg[] = CMD_MODE_EXIT_MESSAGE;
+const char cmd_recognized_msg[] = CMD_OK_MESSAGE;
+const char cmd_not_recognized_msg[] = CMD_NOT_OK_MESSAGE;
+const char cmd_error_msg[] = CMD_ERROR_MESSAGE;
+
+
+
+// Keyer Command Mode Variables
+bool      keyer_is_in_cmd_mode = false;
+uint32_t  cmd_mode_input_timeout = 0; // Maximum wait time after hitting the command button with no paddle input before auto-exit
+KEYER_CMD_MODE_TYPE command_mode = CMD_IDLE;
+bool sidetone_muted; 
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -95,8 +128,12 @@ void setup() {
   loadWPM(18);              // Fix speed at 18 WPM
 
   // Setup for Righthanded paddle by default
-  DIT_PADDLE = LEFT_PADDLE_Pin;   // Dits on right hand thumb
-  DAH_PADDLE = RIGHT_PADDLE_Pin;  // Dahs on right hand index finger
+  dit_paddle = LEFT_PADDLE_Pin;   // Dits on right hand thumb
+  dah_paddle = RIGHT_PADDLE_Pin;  // Dahs on right hand index finger
+
+  sidetone_muted = true;  
+  audio_send_morse_msg(&pwr_on_msg[0], ditTime);
+
   
   // Serial.begin(9600); // for Debug
 }
@@ -116,10 +153,28 @@ void loop() {
   // Supports Iambic A and B
   // State machine based, uses calls to millis() for timing.
 
+  // keyer_is_in_command_mode = (command_mode != CMD_IDLE);
+
+  if (keyer_is_in_cmd_mode) {
+      if (millis() > cmd_mode_input_timeout){  // Command mode timeout, no input
+        if (command_mode == CMD_TUNE) {
+          digitalWrite(ledPin, LOW);        // turn the LED off
+          digitalWrite(TX_SWITCH_Pin, LOW); // Turn the transmitter off
+          command_mode = CMD_IDLE;
+      
+          if (!sidetone_muted) {
+          noTone(PIEZO_SPKR_Pin);
+          } 
+          
+        }
+        exit_command_mode();  
+      }
+  }
+
   switch (keyerState) {
     case IDLE:
       // Wait for direct or latched paddle press
-      if ((digitalRead(DIT_PADDLE) == LOW) || (digitalRead(DAH_PADDLE) == LOW) || (keyerControl & 0x03)) {
+      if ((digitalRead(dit_paddle) == LOW) || (digitalRead(dah_paddle) == LOW) || (keyerControl & 0x03)) {
         update_PaddleLatch();
         current_morse_character = B11111110; // Initialization
         keyerState = CHK_DIT;
@@ -191,25 +246,27 @@ void loop() {
     case PRE_IDLE: // Wait for an intercharacter space
 
       // Check for direct or latched paddle press
-      if ((digitalRead(DIT_PADDLE) == LOW) || (digitalRead(DAH_PADDLE) == LOW) || (keyerControl & 0x03)) {
+      if ((digitalRead(dit_paddle) == LOW) || (digitalRead(dah_paddle) == LOW) || (keyerControl & 0x03)) {
         update_PaddleLatch();
         keyerState = CHK_DIT;
       } 
       else { // Check for intercharacter space
-        if (millis() > ktimer) {
+        if (millis() > ktimer) {  // We have a character 
           // Serial.println(current_morse_character);
-          keyerState = IDLE;         // go idle        
+          keyerState = IDLE;         // go idle 
+          if (keyer_is_in_cmd_mode) {
+            process_keyer_command(current_morse_character, ditTime); 
+          }      
         }
       }
 
       break;      
   }
 
-  // Simple Iambic mode select
-  // The mode is toggled between A & B every time switch is pressed
-  // Flash LED to indicate new mode.
+  
+  // Handle a command mode button press
   if (digitalRead(cmdPin) == LOW) {
-    // Give switch time to settle
+    // Give the switch time to settle
     debounce = 100;
     do {
       // wait here until switch is released, we debounce to be sure
@@ -219,9 +276,27 @@ void loop() {
       delay(2);
     } while (debounce--);
 
+   
+    if (command_mode == CMD_TUNE) { // Locked in TX due to TUNE Mode so exit on Command Button press
+      digitalWrite(ledPin, LOW);        // turn the LED off
+      digitalWrite(TX_SWITCH_Pin, LOW); // Turn the transmitter off
+      command_mode = CMD_IDLE;
+      
+      if (!sidetone_muted) {
+        noTone(PIEZO_SPKR_Pin);
+      } 
+      exit_command_mode();
 
+    }
+    else {
 
-    audio_send_morse_msg (ditTime);
+      if (!keyer_is_in_cmd_mode) { // Not already in command mode so enter it, otherwise ignore the button press
+       keyer_is_in_cmd_mode = true;
+       audio_send_morse_msg(&cmd_mode_entry_msg[0], ditTime);
+       cmd_mode_input_timeout = millis() + COMMAND_INPUT_TIMEOUT; 
+
+      }
+    }
 
     
   }
@@ -254,10 +329,10 @@ void flashLED(int count) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void update_PaddleLatch() {
-  if (digitalRead(DIT_PADDLE) == LOW) {
+  if (digitalRead(dit_paddle) == LOW) {
     keyerControl |= DIT_L;
   }
-  if (digitalRead(DAH_PADDLE) == LOW) {
+  if (digitalRead(dah_paddle) == LOW) {
     keyerControl |= DAH_L;
   }
 }
@@ -267,10 +342,18 @@ void update_PaddleLatch() {
 //
 ///////////////////////////////////////////////////////////////////////////////
 void tx_key_down() {
-  digitalWrite(ledPin, HIGH);        // turn the LED on
-  digitalWrite(TX_SWITCH_Pin, HIGH);
-  tone(PIEZO_SPKR_Pin, SIDETONE_FREQ_HZ);
 
+  if (keyer_is_in_cmd_mode) { // In Cmd mode only send the audio tone 
+    digitalWrite(ledPin, HIGH);        // turn the LED on
+    tone(PIEZO_SPKR_Pin, SIDETONE_FREQ_HZ); // Wedon't mute the sidetone in CMD mode
+  }
+  else { // Not in Command mode
+    digitalWrite(ledPin, HIGH);        // turn the LED on
+    digitalWrite(TX_SWITCH_Pin, HIGH); // Turn the transmitter on
+    if (!sidetone_muted) {
+      tone(PIEZO_SPKR_Pin, SIDETONE_FREQ_HZ);
+    }
+  }
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -279,9 +362,22 @@ void tx_key_down() {
 ///////////////////////////////////////////////////////////////////////////////
 void tx_key_up() {
 
+/*
   digitalWrite(ledPin, LOW);    // turn the LED off
   digitalWrite(TX_SWITCH_Pin, LOW);
   noTone(PIEZO_SPKR_Pin);       // turn off keyer sidetone
+*/
+  digitalWrite(ledPin, LOW);        // turn the LED off
+
+  if (keyer_is_in_cmd_mode) { // In Cmd mode we only send the audio tone 
+    noTone(PIEZO_SPKR_Pin); 
+  }
+  else { // Not in Command mode
+    digitalWrite(TX_SWITCH_Pin, LOW); // Turn the transmitter off
+    if (!sidetone_muted) {
+      noTone(PIEZO_SPKR_Pin);
+    }
+  }
 
 }
 ///////////////////////////////////////////////////////////////////////////////
@@ -293,3 +389,63 @@ void tx_key_up() {
 void loadWPM(int wpm) {
   ditTime = 1200 / wpm;
 }
+
+void exit_command_mode() {
+  keyer_is_in_cmd_mode = false;  // Exit Command mode
+  command_mode = CMD_IDLE;
+  cmd_mode_input_timeout = 0;
+  audio_send_morse_msg(&cmd_mode_exit_msg[0], ditTime); 
+}
+
+void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
+
+  switch (current_character) {
+
+    case X_CMD : { // eXchange paddles
+      uint8_t temp_paddle;
+      temp_paddle = dit_paddle;
+      dit_paddle = dah_paddle;
+      dah_paddle = temp_paddle;
+      audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+
+      exit_command_mode();
+  }
+
+      break;
+
+    case A_CMD : // Toggle keyer Audio sidetone ON/OFF
+      sidetone_muted = !sidetone_muted; 
+      audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+      exit_command_mode();
+
+      break;
+
+        
+    case T_CMD : // Enter Tune mode
+      audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+      digitalWrite(ledPin, HIGH);        // turn the LED on
+      digitalWrite(TX_SWITCH_Pin, HIGH); // Turn the transmitter on
+      if (!sidetone_muted) {
+        tone(PIEZO_SPKR_Pin, SIDETONE_FREQ_HZ);
+      }
+      command_mode = CMD_TUNE;
+      cmd_mode_input_timeout = millis() + (COMMAND_TUNE_TIMEOUT);        
+    break;
+
+    case S_CMD : // Set keyer speed - this is just a placeholder for the real code
+      exit_command_mode();
+    break;
+
+    case W_CMD : // Write keyer config to EEPROM
+      audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+      exit_command_mode();
+      break;
+
+    default :
+    // Otherwise Command not recognized
+    audio_send_morse_msg (&cmd_not_recognized_msg[0], ditTime_ms);
+    exit_command_mode();
+  }
+  
+}
+

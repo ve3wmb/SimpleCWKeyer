@@ -23,14 +23,7 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "Morse.h"
-#define CMD_MODE_MESSAGE "R "
-#define CMD_MODE_EXIT_MSG "* K"
-#define OK_MSG "OK"
-#define PWR_ON_MSG "KEYER OK "
-
 #define SPACE B11101111        // Special encoding for interword Space character
-
-const char msg[] = CMD_MODE_EXIT_MSG; //
 
 
 uint8_t morse_char_code(char c) {
@@ -96,26 +89,26 @@ uint8_t morse_char_code(char c) {
 
 
 
-void audio_send_morse_msg (uint32_t dit_time_ms)
+void audio_send_morse_msg (const char *msg_ptr, uint32_t dit_time_ms)
 // Sends a audio Morse Response to a Keyer Command input via paddles
 {
-  uint8_t msgIndex = 0;             // Index into the message
+
   uint8_t morse_character;          // Bit pattern for the character being sent
   bool transmission_done = false;
 
   while (!transmission_done) {
 
     // call audio_send_Morse_char for each character in response message.
-    if (!msg[msgIndex]) { 
+    if (! *msg_ptr) { 
       // Terminating Null character reached
-      msgIndex = 0;
       transmission_done = true;
      }
     else {
     // Get the encoded bit pattern for the morse character
-    morse_character = morse_char_code(msg[msgIndex]);
+    morse_character = morse_char_code(*msg_ptr);
     audio_send_morse_character(morse_character, dit_time_ms);
-    msgIndex++; // Point to the next character in the message to send
+    msg_ptr++; // Point to the next character in the message to send
+    
 
     // The last element of each character already inserts an inter-element space so we delay 2 X Dit not 3 X Dit
     delay((dit_time_ms * 2));  // Inter character spacing (equivalent to Dah length)

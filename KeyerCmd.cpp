@@ -1,9 +1,8 @@
-#ifndef MORSE_H
-#define MORSE_H
 /*
-    Morse.h - Morse Code encoding and decoding definitions for Simple CW Keyer
+   KeyerCmd.cpp - Simple CW Keyer 
+   
 
-   Copyright (C) 2023 Michael Babineau (mbabineau.ve3wmb@gmail.com)
+   Copyright (C) 2023 Michael Babineau <mbabineau.ve3wmb@gmail.com>
 
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU Lesser Public License as published by
@@ -18,25 +17,8 @@
    You should have received a copy of the GNU Lesser Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-
-#include <Arduino.h>
-//#include "KeyerCmd.h"
-#define DIT 0
-#define DAH 1
+#include "Morse.h"
+#include "KeyerCmd.h"
 
 
-enum MORSE_SEND_STATE_TYPE {
-  START,
-  SEND_DIT,
-  SEND_DAH,
-  SEND_SPACE,
-  SEND_INTER_ELEMENT,
-  DONE
-};
 
-void audio_send_morse_character(uint8_t send_char, uint32_t ditDuration);
-void audio_send_morse_msg (const char *msg_ptr, uint32_t dit_time_ms);
-uint8_t morse_char_code(char c);
-
-
-#endif

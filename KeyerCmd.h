@@ -1,7 +1,7 @@
-#ifndef MORSE_H
-#define MORSE_H
+#ifndef KEYERCMD_H
+#define KEYERCMD_H
 /*
-    Morse.h - Morse Code encoding and decoding definitions for Simple CW Keyer
+    KeyerCmd.h - Definitions specific to handling keyer commands input via the paddles
 
    Copyright (C) 2023 Michael Babineau (mbabineau.ve3wmb@gmail.com)
 
@@ -19,24 +19,28 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include <Arduino.h>
-//#include "KeyerCmd.h"
-#define DIT 0
-#define DAH 1
+#define CMD_MODE_ENTRY_MESSAGE " K"
+#define CMD_MODE_EXIT_MESSAGE " * K" // AR K
+#define CMD_OK_MESSAGE " R"
+#define CMD_NOT_OK_MESSAGE " ?"
+#define CMD_ERROR_MESSAGE " #"
+#define PWR_ON_MESSAGE "OK"
 
+#define X_CMD   B11101001
+#define A_CMD   B11111001
+#define T_CMD   B11111101
+#define S_CMD   B11110000
+#define W_CMD   B11110011
 
-enum MORSE_SEND_STATE_TYPE {
-  START,
-  SEND_DIT,
-  SEND_DAH,
-  SEND_SPACE,
-  SEND_INTER_ELEMENT,
-  DONE
-};
-
-void audio_send_morse_character(uint8_t send_char, uint32_t ditDuration);
-void audio_send_morse_msg (const char *msg_ptr, uint32_t dit_time_ms);
-uint8_t morse_char_code(char c);
-
+#define DIGIT_1 B11001111
+#define DIGIT_2 B11000111
+#define DIGIT_3 B11000011
+#define DIGIT_4 B11000001
+#define DIGIT_5 B11000000
+#define DIGIT_6 B11010000
+#define DIGIT_7 B11011000
+#define DIGIT_8 B11011100
+#define DIGIT_9 B11011110
+#define DIGIT_0 B11011111
 
 #endif
