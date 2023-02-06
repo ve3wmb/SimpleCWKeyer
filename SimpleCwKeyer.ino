@@ -1,6 +1,6 @@
 // Simple CW Keyer - A simple Iambic Morse Keyer for Arduino
 // January 19, 2023
-// Version 0.04a 
+// Version 0.05a 
 //
 // A basic iambic mode keyer that has adjustable speed
 // and can be configured to operate in iambic mode a or b.
@@ -40,7 +40,7 @@ int TX_SWITCH_Pin = 5;      // Radio T/R Switch - HIGH is Key down (TX)), LOW is
 #define IAMBIC_B 0x10  // 0x00 for Iambic A, 0x01 for Iambic B (Binary 0001 0000)
 
 #define SIDETONE_FREQ_HZ 600  // Frequency for the keyer sidetone
-#define COMMAND_INPUT_TIMEOUT 5000 // 
+#define COMMAND_INPUT_TIMEOUT 8000 // 
 #define COMMAND_TUNE_TIMEOUT 20000 // 20 second timeout on TUNE command 
 
 
@@ -60,10 +60,10 @@ enum KSTYPE {
 
 enum KEYER_CMD_MODE_TYPE {
   CMD_IDLE,
+  CMD_ENTER,
   CMD_TUNE,
-  CMD_SPEED_SET,
-  CMD_SPEED_SET_D1,
-  CMD_SPEED_SET_D2,
+  CMD_SPEED_WAIT_D1,
+  CMD_SPEED_WAIT_D2,
   
 };
 
@@ -74,6 +74,7 @@ enum KEYER_CMD_MODE_TYPE {
 uint32_t ditTime;      // Number of milliseconds per dit
 uint8_t keyerControl;  // 0x1 Dit latch, 0x2 Dah latch, 0x04 Dit being processed, 0x10 0 for Iambic A or 1 for B
 KSTYPE keyerState = IDLE;  // State global variable
+uint8_t new_keyer_wpm; 
  
 
 
@@ -97,9 +98,9 @@ const char cmd_error_msg[] = CMD_ERROR_MESSAGE;
 
 
 // Keyer Command Mode Variables
-bool      keyer_is_in_cmd_mode = false;
+// bool      keyer_is_in_cmd_mode = false;
 uint32_t  cmd_mode_input_timeout = 0; // Maximum wait time after hitting the command button with no paddle input before auto-exit
-KEYER_CMD_MODE_TYPE command_mode = CMD_IDLE;
+KEYER_CMD_MODE_TYPE keyer_command_mode = CMD_IDLE;
 bool sidetone_muted; 
 
 
@@ -131,7 +132,7 @@ void setup() {
   dit_paddle = LEFT_PADDLE_Pin;   // Dits on right hand thumb
   dah_paddle = RIGHT_PADDLE_Pin;  // Dahs on right hand index finger
 
-  sidetone_muted = true;  
+  sidetone_muted = false;  
   audio_send_morse_msg(&pwr_on_msg[0], ditTime);
 
   
@@ -155,12 +156,14 @@ void loop() {
 
   // keyer_is_in_command_mode = (command_mode != CMD_IDLE);
 
-  if (keyer_is_in_cmd_mode) {
-      if (millis() > cmd_mode_input_timeout){  // Command mode timeout, no input
-        if (command_mode == CMD_TUNE) {
+  if (keyer_command_mode != CMD_IDLE) { // Keyer is in Command Mode
+      if (millis() > cmd_mode_input_timeout){  // Check for command mode timeout (no input)
+
+        // Special Case for TUNE MODE we need to unkey the transmitter
+        if (keyer_command_mode == CMD_TUNE) {
           digitalWrite(ledPin, LOW);        // turn the LED off
           digitalWrite(TX_SWITCH_Pin, LOW); // Turn the transmitter off
-          command_mode = CMD_IDLE;
+          keyer_command_mode = CMD_IDLE;
       
           if (!sidetone_muted) {
           noTone(PIEZO_SPKR_Pin);
@@ -254,7 +257,7 @@ void loop() {
         if (millis() > ktimer) {  // We have a character 
           // Serial.println(current_morse_character);
           keyerState = IDLE;         // go idle 
-          if (keyer_is_in_cmd_mode) {
+          if (keyer_command_mode != CMD_IDLE) {
             process_keyer_command(current_morse_character, ditTime); 
           }      
         }
@@ -276,11 +279,11 @@ void loop() {
       delay(2);
     } while (debounce--);
 
-   
-    if (command_mode == CMD_TUNE) { // Locked in TX due to TUNE Mode so exit on Command Button press
+    // Special case for TUNE mode
+    if (keyer_command_mode == CMD_TUNE) { // Locked in TX due to TUNE Mode so exit on Command Button press
       digitalWrite(ledPin, LOW);        // turn the LED off
       digitalWrite(TX_SWITCH_Pin, LOW); // Turn the transmitter off
-      command_mode = CMD_IDLE;
+      keyer_command_mode = CMD_IDLE;
       
       if (!sidetone_muted) {
         noTone(PIEZO_SPKR_Pin);
@@ -290,8 +293,8 @@ void loop() {
     }
     else {
 
-      if (!keyer_is_in_cmd_mode) { // Not already in command mode so enter it, otherwise ignore the button press
-       keyer_is_in_cmd_mode = true;
+      if (keyer_command_mode == CMD_IDLE) { // Not already in command mode so enter it, otherwise ignore the button press
+       keyer_command_mode = CMD_ENTER;
        audio_send_morse_msg(&cmd_mode_entry_msg[0], ditTime);
        cmd_mode_input_timeout = millis() + COMMAND_INPUT_TIMEOUT; 
 
@@ -343,7 +346,7 @@ void update_PaddleLatch() {
 ///////////////////////////////////////////////////////////////////////////////
 void tx_key_down() {
 
-  if (keyer_is_in_cmd_mode) { // In Cmd mode only send the audio tone 
+  if (keyer_command_mode != CMD_IDLE) { // In Cmd mode only send the audio tone 
     digitalWrite(ledPin, HIGH);        // turn the LED on
     tone(PIEZO_SPKR_Pin, SIDETONE_FREQ_HZ); // Wedon't mute the sidetone in CMD mode
   }
@@ -369,7 +372,7 @@ void tx_key_up() {
 */
   digitalWrite(ledPin, LOW);        // turn the LED off
 
-  if (keyer_is_in_cmd_mode) { // In Cmd mode we only send the audio tone 
+  if (keyer_command_mode != CMD_IDLE) { // In Cmd mode we only send the audio tone 
     noTone(PIEZO_SPKR_Pin); 
   }
   else { // Not in Command mode
@@ -391,61 +394,184 @@ void loadWPM(int wpm) {
 }
 
 void exit_command_mode() {
-  keyer_is_in_cmd_mode = false;  // Exit Command mode
-  command_mode = CMD_IDLE;
+  keyer_command_mode = CMD_IDLE; 
   cmd_mode_input_timeout = 0;
   audio_send_morse_msg(&cmd_mode_exit_msg[0], ditTime); 
 }
 
 void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
 
-  switch (current_character) {
+  /*
+  enum KEYER_CMD_MODE_TYPE
+  CMD_IDLE,
+  CMD_ENTER,
+  CMD_TUNE,
+  CMD_SPEED_WAIT_D1,
+  CMD_SPEED_WAIT_D2,
+  */
 
-    case X_CMD : { // eXchange paddles
-      uint8_t temp_paddle;
-      temp_paddle = dit_paddle;
-      dit_paddle = dah_paddle;
-      dah_paddle = temp_paddle;
-      audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+  switch (keyer_command_mode) {
+ 
+    case CMD_ENTER : // First Command Character input
 
-      exit_command_mode();
-  }
+      switch (current_character) {
 
+        case X_CMD :  // eXchange paddles
+          uint8_t temp_paddle;
+          temp_paddle = dit_paddle;
+          dit_paddle = dah_paddle;
+          dah_paddle = temp_paddle;
+          audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+          exit_command_mode();
+        break;
+
+        case A_CMD : // Toggle keyer Audio sidetone ON/OFF
+          sidetone_muted = !sidetone_muted; 
+          audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+          exit_command_mode();
+
+          break;
+
+        case T_CMD : // Enter Tune mode
+          audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+          digitalWrite(ledPin, HIGH);        // turn the LED on
+          digitalWrite(TX_SWITCH_Pin, HIGH); // Turn the transmitter on
+          if (!sidetone_muted) tone(PIEZO_SPKR_Pin, SIDETONE_FREQ_HZ);
+          keyer_command_mode = CMD_TUNE;
+          cmd_mode_input_timeout = millis() + (COMMAND_TUNE_TIMEOUT);        
+          break;
+
+        case S_CMD : // Set keyer speed 
+          keyer_command_mode = CMD_SPEED_WAIT_D1; // Now wait on the first digit of the speed
+          new_keyer_wpm = 0; 
+          break;
+
+        case W_CMD : // Write keyer config to EEPROM .. just a placeholder for now
+          audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+          exit_command_mode();
+          break;
+
+        default :
+          // unrecognized command input 
+          audio_send_morse_msg (&cmd_not_recognized_msg[0], ditTime_ms);
+          exit_command_mode();          
+
+      } // End switch on current character
       break;
 
-    case A_CMD : // Toggle keyer Audio sidetone ON/OFF
-      sidetone_muted = !sidetone_muted; 
-      audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
-      exit_command_mode();
 
-      break;
+      case CMD_SPEED_WAIT_D1 :  // Waiting on first digit of new speed (Speed range supported is 10 to 39 wpm) 
 
-        
-    case T_CMD : // Enter Tune mode
-      audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
-      digitalWrite(ledPin, HIGH);        // turn the LED on
-      digitalWrite(TX_SWITCH_Pin, HIGH); // Turn the transmitter on
-      if (!sidetone_muted) {
-        tone(PIEZO_SPKR_Pin, SIDETONE_FREQ_HZ);
-      }
-      command_mode = CMD_TUNE;
-      cmd_mode_input_timeout = millis() + (COMMAND_TUNE_TIMEOUT);        
-    break;
+        switch (current_character) {
+          case DIGIT_1 :
+            new_keyer_wpm = 10;
+            keyer_command_mode = CMD_SPEED_WAIT_D2;
+            break;
 
-    case S_CMD : // Set keyer speed - this is just a placeholder for the real code
-      exit_command_mode();
-    break;
+          case DIGIT_2 :
+            new_keyer_wpm = 20;
+            keyer_command_mode = CMD_SPEED_WAIT_D2;
+            break;
 
-    case W_CMD : // Write keyer config to EEPROM
-      audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
-      exit_command_mode();
-      break;
+          case DIGIT_3 :
+            new_keyer_wpm = 20;
+            keyer_command_mode = CMD_SPEED_WAIT_D2;
+            break;
 
-    default :
-    // Otherwise Command not recognized
-    audio_send_morse_msg (&cmd_not_recognized_msg[0], ditTime_ms);
-    exit_command_mode();
-  }
+          default : // Invalid speed input 
+            new_keyer_wpm = 20;
+            audio_send_morse_msg (&cmd_error_msg[0], ditTime_ms);
+            exit_command_mode();
+            break;
+
+        }
+        break;
+
+    case CMD_SPEED_WAIT_D2 :  // Waiting on second digit of new speed (Speed range supported is 10 to 39 wpm)
+      
+        switch (current_character) {
+
+          case DIGIT_1 :
+            new_keyer_wpm = new_keyer_wpm + 1;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break;
+
+          case DIGIT_2 :
+            new_keyer_wpm = new_keyer_wpm + 2;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break;
+
+          case DIGIT_3 :
+            new_keyer_wpm = new_keyer_wpm + 3;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break;
+
+          case DIGIT_4 :
+            new_keyer_wpm = new_keyer_wpm + 4;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break;
+
+          case DIGIT_5 :
+            new_keyer_wpm = new_keyer_wpm + 5;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break;            
+
+          case DIGIT_6 :
+            new_keyer_wpm = new_keyer_wpm + 6;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break; 
+
+          case DIGIT_7 :
+            new_keyer_wpm = new_keyer_wpm + 7;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break; 
+
+          case DIGIT_8 :
+            new_keyer_wpm = new_keyer_wpm + 8;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break; 
+
+          case DIGIT_9 :
+            new_keyer_wpm = new_keyer_wpm + 9;
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break; 
+
+          case DIGIT_0 :
+            loadWPM(new_keyer_wpm);
+            audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+            exit_command_mode();
+            break;                                            
+
+          default : // Invalid speed input for 2nd digit
+            audio_send_morse_msg (&cmd_error_msg[0], ditTime_ms);
+            exit_command_mode();
+            break;
+
+        }
+        break;
+
+    case CMD_IDLE : break; // This is not expected 
+
+  } // End Switch on Keyer Command Mode
+
   
-}
+} // End process_keyer_command()
 
