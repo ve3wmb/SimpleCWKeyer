@@ -1,6 +1,6 @@
 // Simple CW Keyer - A simple Iambic Morse Keyer for Arduino
 // January 19, 2023
-// Version 0.05a 
+// Version 0.06a 
 //
 // A basic iambic mode keyer that has adjustable speed
 // and can be configured to operate in iambic mode a or b.
@@ -19,6 +19,7 @@
 #include "KeyerBoardConfig.h"  // Configurations for diferent Arduino Boards
 #include "Morse.h"
 #include "KeyerCmd.h"
+#include <EEPROM.h>
 
 //
 // Digital Pins
@@ -37,7 +38,8 @@ int TX_SWITCH_Pin = 5;      // Radio T/R Switch - HIGH is Key down (TX)), LOW is
 #define DIT_L 0x01     // Dit latch (Binary 0000 0001)
 #define DAH_L 0x02     // Dah latch (Binary 0000 0010)
 #define DIT_PROC 0x04  // Dit is being processed (Binary 0000 0100)
-#define IAMBIC_B 0x10  // 0x00 for Iambic A, 0x01 for Iambic B (Binary 0001 0000)
+#define IAMBIC_B 0x10  // 0x00 for Iambic A, 0x10 for Iambic B (Binary 0001 0000)
+#define IAMBIC_A 0
 
 #define SIDETONE_FREQ_HZ 600  // Frequency for the keyer sidetone
 #define COMMAND_INPUT_TIMEOUT 8000 // 
@@ -48,6 +50,7 @@ int TX_SWITCH_Pin = 5;      // Radio T/R Switch - HIGH is Key down (TX)), LOW is
 //
 //  Keyer State Machine Defines
 
+// Keyer State machine - handles sending of Morse elements based on paddle input
 enum KSTYPE {
   IDLE,
   CHK_DIT,
@@ -58,6 +61,9 @@ enum KSTYPE {
   PRE_IDLE,
 };
 
+
+
+// Keyer Command Mode State - handles the processing of Commands entered via the paddles after entering Command Mode
 enum KEYER_CMD_MODE_TYPE {
   CMD_IDLE,
   CMD_ENTER,
@@ -67,6 +73,19 @@ enum KEYER_CMD_MODE_TYPE {
   
 };
 
+// Data type for storing Keyer settings in EEPROM
+struct KeyerConfigType {
+  uint32_t ms_per_dit;          // Speed
+  uint8_t dit_paddle_pin;      // Dit paddle pin number
+  uint8_t dah_paddle_pin;     // Dah Paddle pin number
+  uint8_t iambic_keying_mode; // 0 - Iambic-A, 1 Iambic-B
+  uint8_t sidetone_is_muted;     //  
+  uint32_t num_writes;   
+  uint32_t data_checksum;
+};
+
+
+
 ////////////////////////////////////////////////////////////////////////////////////////
 //
 //  Global Variables
@@ -75,6 +94,7 @@ uint32_t ditTime;      // Number of milliseconds per dit
 uint8_t keyerControl;  // 0x1 Dit latch, 0x2 Dah latch, 0x04 Dit being processed, 0x10 0 for Iambic A or 1 for B
 KSTYPE keyerState = IDLE;  // State global variable
 uint8_t new_keyer_wpm; 
+KeyerConfigType ks_eeprom;  // Persistant Keyer config info 
  
 
 
@@ -94,8 +114,6 @@ const char cmd_mode_exit_msg[] = CMD_MODE_EXIT_MESSAGE;
 const char cmd_recognized_msg[] = CMD_OK_MESSAGE;
 const char cmd_not_recognized_msg[] = CMD_NOT_OK_MESSAGE;
 const char cmd_error_msg[] = CMD_ERROR_MESSAGE;
-
-
 
 // Keyer Command Mode Variables
 // bool      keyer_is_in_cmd_mode = false;
@@ -122,20 +140,43 @@ void setup() {
   pinMode(RIGHT_PADDLE_Pin, INPUT_PULLUP);  // sets Right Paddle digital pin as input
   pinMode(cmdPin, INPUT_PULLUP);            // sets PB analog pin 3 as command switch input
   digitalWrite(ledPin, LOW);                // turn the LED off
-  digitalWrite(TX_SWITCH_Pin, LOW);          // Trasmitter off
+  digitalWrite(TX_SWITCH_Pin, LOW);          // Transmitter off
 
   keyerState = IDLE;
-  keyerControl = IAMBIC_B;  // Make Iambic B the default mode
-  loadWPM(18);              // Fix speed at 18 WPM
 
-  // Setup for Righthanded paddle by default
-  dit_paddle = LEFT_PADDLE_Pin;   // Dits on right hand thumb
-  dah_paddle = RIGHT_PADDLE_Pin;  // Dahs on right hand index finger
-
-  sidetone_muted = false;  
-  audio_send_morse_msg(&pwr_on_msg[0], ditTime);
-
+  EEPROM.get(EEADDRESS, ks_eeprom); // Read the stored data from EEPROM
   
+  if (!validate_ee_checksum()) { // Check if the calculated checksum equals the stored checksum
+
+    // Checksum didn't match stored data so assume that this is the first time this code has run
+    keyerControl = IAMBIC_B;  // Make Iambic B the default mode
+    loadWPM(18);              // Fix speed at 18 WPM
+
+    // Setup for Righthanded paddle by default
+    dit_paddle = LEFT_PADDLE_Pin;   // Dits on right hand thumb
+    dah_paddle = RIGHT_PADDLE_Pin;  // Dahs on right hand index finger
+    sidetone_muted = true;
+
+    // Save these defaults in case a "W" command is issued. 
+    ks_eeprom.ms_per_dit = ditTime;
+    ks_eeprom.dit_paddle_pin = dit_paddle;
+    ks_eeprom.dah_paddle_pin = dah_paddle;
+    ks_eeprom.iambic_keying_mode = IAMBIC_B;
+    ks_eeprom.sidetone_is_muted = true;
+    ks_eeprom.num_writes = 1;
+    ks_eeprom.data_checksum = calculate_ee_checksum(); 
+    EEPROM.put(EEADDRESS, ks_eeprom);  
+  }
+  else { // Checksum matched so restore previous settings saved in EEPROM
+    ditTime  = ks_eeprom.ms_per_dit;
+    dit_paddle = ks_eeprom.dit_paddle_pin;
+    dah_paddle = ks_eeprom.dah_paddle_pin;
+    keyerControl = ks_eeprom.iambic_keying_mode;
+    sidetone_muted = (ks_eeprom.sidetone_is_muted != 0);
+  }
+ 
+  audio_send_morse_msg(&pwr_on_msg[0], ditTime); 
+
   // Serial.begin(9600); // for Debug
 }
 
@@ -149,17 +190,11 @@ void loop() {
   static long ktimer;
   int debounce;
 
-  // Basic Iambic Keyer
-  // keyerControl contains processing flags and keyer mode bits
-  // Supports Iambic A and B
-  // State machine based, uses calls to millis() for timing.
 
-  // keyer_is_in_command_mode = (command_mode != CMD_IDLE);
+  if (keyer_command_mode != CMD_IDLE) { // Keyer is in Command Mode (i.e. command button was depressed)
+      if (millis() > cmd_mode_input_timeout){  // Check for command mode timer expiry (no input)
 
-  if (keyer_command_mode != CMD_IDLE) { // Keyer is in Command Mode
-      if (millis() > cmd_mode_input_timeout){  // Check for command mode timeout (no input)
-
-        // Special Case for TUNE MODE we need to unkey the transmitter
+        // Special Case if we are in TUNE MODE - we need to unkey the transmitter if the timer expired
         if (keyer_command_mode == CMD_TUNE) {
           digitalWrite(ledPin, LOW);        // turn the LED off
           digitalWrite(TX_SWITCH_Pin, LOW); // Turn the transmitter off
@@ -174,12 +209,13 @@ void loop() {
       }
   }
 
+  // This state machine translates paddle input into DITS and DAHs and keys the transmitter.
   switch (keyerState) {
     case IDLE:
       // Wait for direct or latched paddle press
       if ((digitalRead(dit_paddle) == LOW) || (digitalRead(dah_paddle) == LOW) || (keyerControl & 0x03)) {
         update_PaddleLatch();
-        current_morse_character = B11111110; // Initialization
+        current_morse_character = B11111110;  
         keyerState = CHK_DIT;
       }
       break;
@@ -280,7 +316,7 @@ void loop() {
     } while (debounce--);
 
     // Special case for TUNE mode
-    if (keyer_command_mode == CMD_TUNE) { // Locked in TX due to TUNE Mode so exit on Command Button press
+    if (keyer_command_mode == CMD_TUNE) { // We are already locked in TX due to TUNE Mode so exit on a Command Button press
       digitalWrite(ledPin, LOW);        // turn the LED off
       digitalWrite(TX_SWITCH_Pin, LOW); // Turn the transmitter off
       keyer_command_mode = CMD_IDLE;
@@ -291,9 +327,9 @@ void loop() {
       exit_command_mode();
 
     }
-    else {
+    else { // Not TUNE MODE 
 
-      if (keyer_command_mode == CMD_IDLE) { // Not already in command mode so enter it, otherwise ignore the button press
+      if (keyer_command_mode == CMD_IDLE) { // Not already in command mode so enter it, otherwise ignore a 2nd button press
        keyer_command_mode = CMD_ENTER;
        audio_send_morse_msg(&cmd_mode_entry_msg[0], ditTime);
        cmd_mode_input_timeout = millis() + COMMAND_INPUT_TIMEOUT; 
@@ -305,23 +341,6 @@ void loop() {
   }
 }
 
-///////////////////////////////////////////////////////////////////////////////
-//
-//    Flash LED as a signal
-//
-//    count specifies the number of flashes
-//
-///////////////////////////////////////////////////////////////////////////////
-
-void flashLED(int count) {
-  int i;
-  for (i = 0; i < count; i++) {
-    digitalWrite(ledPin, HIGH);  // turn the LED on
-    delay(250);
-    digitalWrite(ledPin, LOW);  // turn the LED off
-    delay(250);
-  }
-}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -421,15 +440,17 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           temp_paddle = dit_paddle;
           dit_paddle = dah_paddle;
           dah_paddle = temp_paddle;
+          ks_eeprom.dah_paddle_pin = dah_paddle;
+          ks_eeprom.dit_paddle_pin = dit_paddle;           
           audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
           exit_command_mode();
         break;
 
         case A_CMD : // Toggle keyer Audio sidetone ON/OFF
           sidetone_muted = !sidetone_muted; 
+          ks_eeprom.sidetone_is_muted = sidetone_muted; 
           audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
           exit_command_mode();
-
           break;
 
         case T_CMD : // Enter Tune mode
@@ -446,8 +467,11 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           new_keyer_wpm = 0; 
           break;
 
-        case W_CMD : // Write keyer config to EEPROM .. just a placeholder for now
+        case W_CMD : // Write keyer config to EEPROM
           audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
+          ks_eeprom.num_writes++; // Increment the number of writes
+          ks_eeprom.data_checksum = calculate_ee_checksum(); // Recalculate and save the checksum
+          EEPROM.put(EEADDRESS, ks_eeprom); // Write Keyer State Variables to EEPROM
           exit_command_mode();
           break;
 
@@ -474,12 +498,12 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
             break;
 
           case DIGIT_3 :
-            new_keyer_wpm = 20;
+            new_keyer_wpm = 30;
             keyer_command_mode = CMD_SPEED_WAIT_D2;
             break;
 
           default : // Invalid speed input 
-            new_keyer_wpm = 20;
+            new_keyer_wpm = 0;
             audio_send_morse_msg (&cmd_error_msg[0], ditTime_ms);
             exit_command_mode();
             break;
@@ -494,6 +518,7 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_1 :
             new_keyer_wpm = new_keyer_wpm + 1;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows. 
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break;
@@ -501,6 +526,7 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_2 :
             new_keyer_wpm = new_keyer_wpm + 2;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.            
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break;
@@ -508,6 +534,7 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_3 :
             new_keyer_wpm = new_keyer_wpm + 3;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break;
@@ -515,6 +542,7 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_4 :
             new_keyer_wpm = new_keyer_wpm + 4;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break;
@@ -522,6 +550,7 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_5 :
             new_keyer_wpm = new_keyer_wpm + 5;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break;            
@@ -529,6 +558,7 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_6 :
             new_keyer_wpm = new_keyer_wpm + 6;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break; 
@@ -536,6 +566,7 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_7 :
             new_keyer_wpm = new_keyer_wpm + 7;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break; 
@@ -543,6 +574,7 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_8 :
             new_keyer_wpm = new_keyer_wpm + 8;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.            
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break; 
@@ -550,12 +582,14 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
           case DIGIT_9 :
             new_keyer_wpm = new_keyer_wpm + 9;
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break; 
 
           case DIGIT_0 :
             loadWPM(new_keyer_wpm);
+            ks_eeprom.ms_per_dit = ditTime; // In case a W commands follows.
             audio_send_morse_msg (&cmd_recognized_msg[0], ditTime_ms);
             exit_command_mode();
             break;                                            
@@ -574,4 +608,15 @@ void process_keyer_command(uint8_t current_character, uint32_t ditTime_ms) {
 
   
 } // End process_keyer_command()
+
+uint32_t calculate_ee_checksum() {
+  uint32_t calc_checksum = 0;
+  calc_checksum = ks_eeprom.ms_per_dit + ks_eeprom.dit_paddle_pin + ks_eeprom.dah_paddle_pin + ks_eeprom.iambic_keying_mode + ks_eeprom.sidetone_is_muted + ks_eeprom.num_writes;
+  return (calc_checksum);
+}
+
+bool validate_ee_checksum() {
+  return (ks_eeprom.data_checksum == (calculate_ee_checksum())); 
+}
+
 
