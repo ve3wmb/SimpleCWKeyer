@@ -7,12 +7,13 @@ It supports both Iambic A and Iambic B keying, configurable at compile time.
 It supports a number of user commands that are input in Morse via the paddles after entering a Command mode by closing a momentary switch.
 Commands supported are :
 
-X - (eXchange) - This will swap the DIT and DAH paddles to make it easier for both left and right handers.
-A - (Audio tone on/off) - This command will toggle the audio sidetone via a speaker or Piezo buzzer on and off.
-T - (Tune) - Keys the transmitter for antenna tuner adjustment, until the command button is pushed or the command times out (nominally 20 seconds determined by COMMAND_TUNE_TIMEOUT_MS in KeyerConfig.h)
-Sxx (Speed set) - Sets the keyer speed in WPM where xx ranges from 10 to 39 WPM. 
-W - (Write to EEPROM) - This command will cause a write to EEPROM of the current keyer parameter state to make it persistant. Any changes to paddle orientation, sidetone, or speed via user commands will
-  not be permanent unless a "W" command is issued to write these into permanent storage. On power-up the Arduino will restore settings saved to EEPROM. 
+	X - (eXchange) - This will swap the DIT and DAH paddles to make it easier for both left and right handers.
+	A - (Audio tone on/off) - This command will toggle the audio sidetone via a speaker or Piezo buzzer on and off.
+	T - (Tune) - Keys the transmitter for antenna tuner adjustment, until the command button is pushed or the command times out (nominally 20 seconds determined by COMMAND_TUNE_TIMEOUT_MS in KeyerConfig.h)
+	Sxx (Speed set) - Sets the keyer speed in WPM where xx ranges from 10 to 39 WPM. 
+	W - (Write to EEPROM) - This command will cause a write to EEPROM of the current keyer parameter state to make it persistant.
+	
+Any changes to paddle orientation, sidetone, or speed via user commands will not be permanent unless a "W" command is issued to write these into permanent storage. On power-up the Arduino will restore settings saved to EEPROM. 
 
 Successful Keyer Command operation is as follows : 
 
