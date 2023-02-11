@@ -20,22 +20,12 @@
 */
 
 #include <Arduino.h>
-//#include "KeyerCmd.h"
+
 #define DIT 0
 #define DAH 1
 
-
-enum MORSE_SEND_STATE_TYPE {
-  START,
-  SEND_DIT,
-  SEND_DAH,
-  SEND_SPACE,
-  SEND_INTER_ELEMENT,
-  DONE
-};
-
 void audio_send_morse_character(uint8_t send_char, uint32_t ditDuration);
-void audio_send_morse_msg (const char *msg_ptr, uint32_t dit_time_ms);
+void audio_send_morse_msg(const char *msg_ptr, uint32_t dit_time_ms);
 uint8_t morse_char_code(char c);
 
 

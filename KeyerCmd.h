@@ -19,19 +19,22 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#define CMD_MODE_ENTRY_MESSAGE " K"
-#define CMD_MODE_EXIT_MESSAGE " * K" // AR K
-#define CMD_OK_MESSAGE " R"
-#define CMD_NOT_OK_MESSAGE " ?"
-#define CMD_ERROR_MESSAGE " #"
-#define PWR_ON_MESSAGE "OK"
+// Command audio Morse Response messages
+#define CMD_MODE_ENTRY_MESSAGE " K"   // Entered command mode
+#define CMD_MODE_EXIT_MESSAGE " * K"  // "AR K" - Exit Command Mode
+#define CMD_OK_MESSAGE " R"           // Command input via paddles is recognized
+#define CMD_NOT_OK_MESSAGE " ?"       // Command input via the paddles is not supported
+#define CMD_ERROR_MESSAGE " #"        // ....... Error in command parameter
+#define PWR_ON_MESSAGE "OK"           // Keyer Power on Message
 
-#define X_CMD   B11101001
-#define A_CMD   B11111001
-#define T_CMD   B11111101
-#define S_CMD   B11110000
-#define W_CMD   B11110011
+// Supported user commands
+#define X_CMD B11101001  // X (eXchange) - Paddle swap command
+#define A_CMD B11111001  // A (audio) - toggle Piezo audio sidetone on/off
+#define T_CMD B11111101  // T (tune) - Key the transmitter for adjusting antenna match. Exit via command button or timeout
+#define S_CMD B11110000  // S (speed-set) - set the keyer speed in WPM (Sxx where xx is in the range of 10 to 39 wpm)
+#define W_CMD B11110011  // W (write to eeprom) write the current keyer settings to eeprom to make them persistant
 
+// S command valid Parameters 
 #define DIGIT_1 B11001111
 #define DIGIT_2 B11000111
 #define DIGIT_3 B11000011

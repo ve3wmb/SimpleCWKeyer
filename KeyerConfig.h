@@ -19,7 +19,11 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#define CMD_MODE_PADDLE_INPUT_WAIT_TIME_MS 5000 // (5 Seconds) If command button is pressed and there is no paddle input after this amount of time, command mode is exited.
 
+#define SIDETONE_FREQ_HZ 600           // Frequency for the keyer sidetone
+#define COMMAND_INPUT_TIMEOUT_MS 8000  // (8 Seconds) If command button is pressed and there is no paddle input after this amount of time, command mode is exited.
+#define COMMAND_TUNE_TIMEOUT_MS 20000  // 20 second timeout on TUNE command
+#define DEFAULT_SPEED_WPM 15           // 15 WPM default keyer speed
+//#define KEYER_MODE_IS_IAMBIC_A       // Remove the '//' at the beginning of the line if you prefer Iambic A, otherwise the code will use Iambic B. If you don't use squeeze keying it doesn't matter. 
 
 #endif
