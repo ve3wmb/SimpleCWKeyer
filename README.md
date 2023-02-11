@@ -31,17 +31,16 @@ cause the keyer to respond with error (....... i.e. 7 DITS) and it will then exi
 PIN assignments are configured in the file KeyerBoardConfig.h. You may need to change these according to whatever Arduino Board you are using. 
 KeyerConfig.h contains parameters that can be changed to suit your needs :
 
-#define SIDETONE_FREQ_HZ 600           // Frequency for the keyer sidetone
-#define COMMAND_INPUT_TIMEOUT_MS 8000  // (8 Seconds) If command button is pressed and there is no paddle input after this amount of time, command mode is exited.
-#define COMMAND_TUNE_TIMEOUT_MS 20000  // 20 second timeout on TUNE command
-#define DEFAULT_SPEED_WPM 15           // 15 WPM default keyer speed
-//#define KEYER_MODE_IS_IAMBIC_A       // Remove the '//' at the beginning of the line if you prefer Iambic A, otherwise the code will use Iambic B. If you don't use squeeze keying it doesn't matter.
+	#define SIDETONE_FREQ_HZ 600           // Frequency for the keyer sidetone
+	#define COMMAND_INPUT_TIMEOUT_MS 8000  // (8 Seconds) If command button is pressed and there is no paddle input after this amount of time, command mode is exited.
+	#define COMMAND_TUNE_TIMEOUT_MS 20000  // 20 second timeout on TUNE command
+	#define DEFAULT_SPEED_WPM 15           // 15 WPM default keyer speed
+	//#define KEYER_MODE_IS_IAMBIC_A       // Remove the '//' at the beginning of the line if you prefer Iambic A, otherwise the code will use Iambic B. If you don't use squeeze keying it doesn't matter.
 
-SIDETONE_FREQ_HZ - determines the audio frequency in Hz of the sidetone sent to the Piezo Speaker.
-COMMAND_INPUT_TIMEOUT_MS - This is timout value for Command mode when there is no input. Don't make this less than 8 seconds otherwise if you set the Keyer speed to 10 WPM you will timeout before you can
- send a new S command to change it !
-COMMAND_TUNE_TIMEOUT_MS - Timeout value for the TUNE command.
-DEFAULT_SPEED_WPM 15 - Initial keyer speed on first boot of software install.
+	SIDETONE_FREQ_HZ - determines the audio frequency in Hz of the sidetone sent to the Piezo Speaker.
+	COMMAND_INPUT_TIMEOUT_MS - This is timout value for Command mode when there is no input. Don't make this less than 8 seconds otherwise if you set the Keyer speed to    10 WPM you will timeout before you can send a new S command to change it !
+	COMMAND_TUNE_TIMEOUT_MS - Timeout value for the TUNE command.
+	DEFAULT_SPEED_WPM 15 - Initial keyer speed on first boot of software install.
 
 The file SimpleCWKeyer.png in the "Wiring" folder shows an example of how to wire the keyer up on an Arduino UNO (matches the PIN assignments in KeyerBoardConfig.h). Note that all resistors are 100 ohm and all capacitors
 are 0.1 microFarads. The transmitter is keyed via a 2N2222 NPN transistor used as a switch  (green wires). The pink and yellow wires in the diagram denote the left and right paddle connections and the momentary switch 
